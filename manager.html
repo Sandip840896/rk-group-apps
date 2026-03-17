@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RK Group - Manager Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        * { font-family: 'Inter', sans-serif; }
+        
+        .pulse-ring { position: relative; }
+        .pulse-ring::before { content: ''; position: absolute; inset: -4px; border-radius: inherit; border: 2px solid #ef4444; animation: pulseRing 2s ease-out infinite; }
+        @keyframes pulseRing { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(1.2); opacity: 0; } }
+        
+        .alert-card { animation: slideIn 0.3s ease-out; }
+        @keyframes slideIn { from { transform: translateX(-20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        
+        .status-live::before { content: ''; display: inline-block; width: 8px; height: 8px; background: #10b981; border-radius: 50%; margin-right: 6px; animation: livePulse 2s infinite; }
+        @keyframes livePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        
+        .new-alert { animation: highlight 2s ease-out; }
+        @keyframes highlight { 0% { background-color: #fef3c7; } 100% { background-color: transparent; } }
+        
+        .chart-container { position: relative; height: 200px; width: 100%; }
+    </style>
+</head>
+<body class="bg-slate-100">
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    
+    <script>
+        const firebaseConfig = {
+    apiKey: "AIzaSyDMcHok-Q-w6a0BwG2w1sFvSxQwgTXlnUg",
+    authDomain: "rk-group-feedback.firebaseapp.com",
+    projectId: "rk-group-feedback",
+    storageBucket: "rk-group-feedback.firebasestorage.app",
+    messagingSenderId: "89598658685",
+    appId: "1:89598658685:web:398d8a06db8bea367ec914"
+  };
+        
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+    </script>
+
+    <!-- Navigation -->
+    <nav class="bg-white shadow-lg sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <div class="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-lg flex items-center justify-center text-white font-bold mr-3">RK</div>
+                    <div>
+                        <h1 class="font-bold text-slate-800 text-lg">Manager Dashboard</h1>
+                        <p class="text-xs text-slate-500">Cloud Connected • Real-time</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span class="status-live text-sm font-medium text-green-600 flex items-center" id="connectionStatus">
+                        Live Sync
+                    </span>
+                    <div class="relative">
+                        <i class="fas fa-bell text-slate-600 text-xl cursor-pointer hover:text-blue-600 transition"></i>
+                        <span id="notificationBadge" class="absolute -top-2 -right-2 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center hidden">0</span>
+                    </div>
+                    <button onclick="refreshData()" class="p-2 text-slate-600 hover:text-blue-600 transition" title="Refresh">
+                        <i class="fas fa-sync-alt" id="refreshIcon"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Stats Row -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div class="bg-white rounded-xl shadow-md p-6 border-l-4 border-blue-500">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-slate-500 mb-1">Total Feedback Today</p>
+                        <p class="text-2xl font-bold text-slate-800" id="totalFeedback">0</p>
+                    </div>
+                    <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                        <i class="fas fa-comments text-blue-600 text-xl"></i>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-xl shadow-md p-6 border-l-4 border-red-500">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-slate-500 mb-1">Urgent Issues</p>
+                        <p class="text-2xl font-bold text-slate-800" id="urgentCount">0</p>
+                    </div>
+                    <div class="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
+                        <i class="fas fa-exclamation-triangle text-red-600 text-xl"></i>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-xl shadow-md p-6 border-l-4 border-yellow-500">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-slate-500 mb-1">Pending Response</p>
+                        <p class="text-2xl font-bold text-slate-800" id="pendingCount">0</p>
+                    </div>
+                    <div class="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
+                        <i class="fas fa-clock text-yellow-600 text-xl"></i>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-xl shadow-md p-6 border-l-4 border-green-500">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-slate-500 mb-1">Avg Rating</p>
+                        <p class="text-2xl font-bold text-slate-800" id="avgRating">0.0</p>
+                    </div>
+                    <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                        <i class="fas fa-star text-green-600 text-xl"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="bg-white rounded-xl shadow-md p-4 mb-6">
+            <div class="flex flex-wrap items-center gap-4">
+                <div class="flex items-center space-x-2">
+                    <label class="text-sm font-medium text-slate-700">Train:</label>
+                    <select id="trainFilter" onchange="applyFilters()" class="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="all">All Trains</option>
+                        <option value="12649">12649 - YPR Express</option>
+                        <option value="12628">12628 - Karnataka Exp</option>
+                    </select>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <label class="text-sm font-medium text-slate-700">Status:</label>
+                    <select id="statusFilter" onchange="applyFilters()" class="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="all">All</option>
+                        <option value="new">New</option>
+                        <option value="resolved">Resolved</option>
+                    </select>
+                </div>
+                <div class="flex-1"></div>
+                <button onclick="exportData()" class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700 transition flex items-center space-x-2">
+                    <i class="fas fa-download"></i>
+                    <span>Export CSV</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Alerts Feed -->
+            <div class="lg:col-span-2">
+                <div class="bg-white rounded-xl shadow-md overflow-hidden">
+                    <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+                        <h2 class="text-lg font-bold text-slate-800 flex items-center">
+                            <i class="fas fa-bell text-red-500 mr-2"></i>
+                            Live Alerts
+                        </h2>
+                        <div class="flex space-x-2">
+                            <button onclick="filterAlerts('all')" class="px-3 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 transition">All</button>
+                            <button onclick="filterAlerts('urgent')" class="px-3 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700 hover:bg-red-200 transition">Urgent</button>
+                            <button onclick="filterAlerts('positive')" class="px-3 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700 hover:bg-green-200 transition">Positive</button>
+                        </div>
+                    </div>
+                    <div id="alertsContainer" class="divide-y divide-slate-200 max-h-[600px] overflow-y-auto">
+                        <div class="p-8 text-center text-slate-400">
+                            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                            <p>Connecting to cloud database...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="space-y-6">
+                <!-- Analytics -->
+                <div class="bg-white rounded-xl shadow-md p-6">
+                    <h3 class="text-lg font-bold text-slate-800 mb-4">Today's Issues</h3>
+                    <div class="chart-container">
+                        <canvas id="issuesChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Hourly Trend -->
+                <div class="bg-white rounded-xl shadow-md p-6">
+                    <h3 class="text-lg font-bold text-slate-800 mb-4">Hourly Activity</h3>
+                    <div class="chart-container" style="height: 150px;">
+                        <canvas id="hourlyChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Performance -->
+                <div class="bg-white rounded-xl shadow-md p-6">
+                    <h3 class="text-lg font-bold text-slate-800 mb-4">Resolution Rate</h3>
+                    <div class="relative pt-1">
+                        <div class="flex mb-2 items-center justify-between">
+                            <span class="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-green-600 bg-green-200" id="resolutionLabel">Excellent</span>
+                            <span class="text-xs font-semibold inline-block text-green-600" id="resolutionPercent">0%</span>
+                        </div>
+                        <div class="overflow-hidden h-2 mb-4 text-xs flex rounded bg-green-200">
+                            <div id="resolutionBar" style="width:0%" class="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-green-500 transition-all duration-500"></div>
+                        </div>
+                        <p class="text-xs text-slate-500">Issues resolved before escalation</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Response Modal -->
+    <div id="responseModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6">
+            <h3 class="text-lg font-bold text-slate-800 mb-4">Respond to Customer</h3>
+            <div class="mb-4 p-3 bg-slate-50 rounded-lg">
+                <p class="text-sm text-slate-600 mb-1">Issue:</p>
+                <p class="text-sm font-medium text-slate-800" id="modalIssueText">Loading...</p>
+                <p class="text-xs text-slate-500 mt-1" id="modalContactInfo"></p>
+            </div>
+            <textarea id="responseText" rows="4" class="w-full border border-slate-300 rounded-lg px-4 py-3 mb-4 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Type your response..."></textarea>
+            <div class="flex space-x-3">
+                <button onclick="closeModal()" class="flex-1 py-3 border border-slate-300 rounded-lg text-slate-700 font-medium hover:bg-slate-50 transition">Cancel</button>
+                <button onclick="sendResponse()" class="flex-1 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition">Mark Resolved</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentDocId = null;
+        let allFeedbacks = [];
+        let issuesChart = null;
+        let hourlyChart = null;
+        
+        // Initialize charts when DOM is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            initCharts();
+            startListening();
+        });
+        
+        function initCharts() {
+            // Issues Chart
+            const issuesCtx = document.getElementById('issuesChart').getContext('2d');
+            issuesChart = new Chart(issuesCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Overcharging', 'Service', 'Food Quality', 'Bill Issue', 'Others'],
+                    datasets: [{
+                        data: [0, 0, 0, 0, 0],
+                        backgroundColor: ['#ef4444', '#f97316', '#eab308', '#8b5cf6', '#6b7280'],
+                        borderWidth: 2,
+                        borderColor: '#ffffff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { 
+                        legend: { 
+                            position: 'bottom', 
+                            labels: { 
+                                boxWidth: 12, 
+                                font: { size: 10 },
+                                padding: 10
+                            } 
+                        } 
+                    }
+                }
+            });
+
+            // Hourly Chart
+            const hourlyCtx = document.getElementById('hourlyChart').getContext('2d');
+            hourlyChart = new Chart(hourlyCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['6AM', '8AM', '10AM', '12PM', '2PM', '4PM', '6PM', '8PM', '10PM', '12AM'],
+                    datasets: [{
+                        label: 'Complaints',
+                        data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        backgroundColor: '#3b82f6',
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { stepSize: 1 } },
+                        x: { grid: { display: false } }
+                    }
+                }
+            });
+        }
+
+        function startListening() {
+            db.collection('feedbacks')
+                .orderBy('timestamp', 'desc')
+                .onSnapshot((snapshot) => {
+                    allFeedbacks = [];
+                    snapshot.forEach((doc) => {
+                        allFeedbacks.push({ id: doc.id, ...doc.data() });
+                    });
+                    applyFilters();
+                    updateStats();
+                    updateCharts();
+                    
+                    snapshot.docChanges().forEach((change) => {
+                        if (change.type === 'added') {
+                            playNotificationSound();
+                        }
+                    });
+                }, (error) => {
+                    console.error('Error:', error);
+                    document.getElementById('alertsContainer').innerHTML = `
+                        <div class="p-8 text-center text-red-500">
+                            <i class="fas fa-exclamation-triangle text-4xl mb-2"></i>
+                            <p>Error connecting to database. Please refresh.</p>
+                        </div>
+                    `;
+                });
+        }
+
+        function renderAlerts(feedbacks) {
+            const container = document.getElementById('alertsContainer');
+            
+            if (feedbacks.length === 0) {
+                container.innerHTML = `
+                    <div class="p-8 text-center text-slate-400">
+                        <i class="fas fa-inbox text-4xl mb-2"></i>
+                        <p>No feedback received yet.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = feedbacks.map(fb => createAlertCard(fb)).join('');
+        }
+
+        function createAlertCard(fb) {
+            const isUrgent = fb.rating <= 2 || fb.issueType === 'overcharging';
+            const isPositive = fb.rating >= 4;
+            const borderColor = isUrgent ? 'border-red-500' : isPositive ? 'border-green-500' : 'border-yellow-500';
+            const bgColor = isUrgent ? 'bg-red-50' : isPositive ? 'bg-green-50' : 'bg-yellow-50';
+            const badgeColor = isUrgent ? 'bg-red-200 text-red-800' : isPositive ? 'bg-green-200 text-green-800' : 'bg-yellow-200 text-yellow-800';
+            const badgeText = isUrgent ? 'URGENT' : isPositive ? 'POSITIVE' : 'MEDIUM';
+            
+            const issueLabels = {
+                'overcharging': 'Overcharging', 'service': 'Service Issue',
+                'food-quality': 'Food Quality', 'availability': 'Not Available',
+                'bill': 'No Bill', 'staff-behavior': 'Staff Behavior',
+                'appreciation': 'Appreciation', 'other': 'Other'
+            };
+
+            const time = fb.timestamp ? fb.timestamp.toDate().toLocaleTimeString() : 'Just now';
+            const resolvedClass = fb.status === 'resolved' ? 'opacity-60' : '';
+            const resolvedBadge = fb.status === 'resolved' ? '<span class="ml-2 px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-bold">RESOLVED</span>' : '';
+            
+            const managerResponse = fb.managerResponse ? `
+                <div class="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <p class="text-xs text-blue-600 font-semibold mb-1"><i class="fas fa-reply mr-1"></i>Manager Response:</p>
+                    <p class="text-sm text-blue-800">${fb.managerResponse}</p>
+                </div>
+            ` : '';
+
+            return `
+                <div class="alert-card p-4 border-l-4 ${borderColor} ${bgColor} ${resolvedClass} hover:shadow-md transition" id="alert-${fb.id}">
+                    <div class="flex justify-between items-start mb-2">
+                        <div class="flex items-center space-x-2">
+                            <span class="px-2 py-1 rounded text-xs font-bold ${badgeColor}">${badgeText}</span>
+                            ${resolvedBadge}
+                            <span class="text-xs text-slate-500">${time}</span>
+                        </div>
+                        <div class="flex text-yellow-400 text-sm">
+                            ${'★'.repeat(fb.rating)}${'☆'.repeat(5-fb.rating)}
+                        </div>
+                    </div>
+                    <p class="text-sm font-bold text-slate-800 mb-1">${issueLabels[fb.issueType] || fb.issueType}</p>
+                    <p class="text-sm text-slate-600 mb-2">${fb.description}</p>
+                    ${managerResponse}
+                    <div class="flex items-center justify-between mt-3">
+                        <div>
+                            <span class="text-xs font-medium text-slate-600">Coach ${fb.coach} • Seat ${fb.seat}</span>
+                            ${fb.trainNumber ? `<span class="text-xs font-bold text-blue-600 ml-2">Train ${fb.trainNumber}</span>` : ''}
+                        </div>
+                        ${fb.status !== 'resolved' ? `
+                            <div class="space-x-2">
+                                <button onclick="openResponseModal('${fb.id}')" class="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 transition font-medium">Respond</button>
+                                <button onclick="quickResolve('${fb.id}')" class="text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 transition font-medium">Resolve</button>
+                            </div>
+                        ` : ''}
+                    </div>
+                    ${fb.photo ? `<img src="${fb.photo}" class="mt-3 w-full h-32 object-cover rounded-lg cursor-pointer hover:opacity-80 transition border border-slate-200" onclick="window.open('${fb.photo}')">` : ''}
+                </div>
+            `;
+        }
+
+        function applyFilters() {
+            const trainFilter = document.getElementById('trainFilter').value;
+            const statusFilter = document.getElementById('statusFilter').value;
+            
+            let filtered = allFeedbacks;
+            
+            if (trainFilter !== 'all') {
+                filtered = filtered.filter(f => f.trainNumber === trainFilter);
+            }
+            if (statusFilter !== 'all') {
+                filtered = filtered.filter(f => f.status === statusFilter);
+            }
+            
+            renderAlerts(filtered);
+        }
+
+        function updateStats() {
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            
+            const todayFeedbacks = allFeedbacks.filter(f => {
+                if (!f.timestamp) return false;
+                const fbDate = f.timestamp.toDate();
+                return fbDate >= today;
+            });
+            
+            document.getElementById('totalFeedback').textContent = todayFeedbacks.length;
+            
+            const urgent = todayFeedbacks.filter(f => f.rating <= 2 || f.issueType === 'overcharging').length;
+            document.getElementById('urgentCount').textContent = urgent;
+            
+            const pending = todayFeedbacks.filter(f => f.status === 'new').length;
+            document.getElementById('pendingCount').textContent = pending;
+            
+            const avg = todayFeedbacks.length > 0 
+                ? (todayFeedbacks.reduce((sum, f) => sum + f.rating, 0) / todayFeedbacks.length).toFixed(1)
+                : '0.0';
+            document.getElementById('avgRating').textContent = avg;
+
+            const resolved = todayFeedbacks.filter(f => f.status === 'resolved').length;
+            const rate = todayFeedbacks.length > 0 ? Math.round((resolved / todayFeedbacks.length) * 100) : 0;
+            document.getElementById('resolutionPercent').textContent = rate + '%';
+            document.getElementById('resolutionBar').style.width = rate + '%';
+            document.getElementById('resolutionLabel').textContent = rate > 80 ? 'Excellent' : rate > 60 ? 'Good' : 'Needs Improvement';
+
+            const badge = document.getElementById('notificationBadge');
+            if (pending > 0) {
+                badge.textContent = pending;
+                badge.classList.remove('hidden');
+            } else {
+                badge.classList.add('hidden');
+            }
+        }
+
+        function updateCharts() {
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            
+            const todayFeedbacks = allFeedbacks.filter(f => {
+                if (!f.timestamp) return false;
+                return f.timestamp.toDate() >= today;
+            });
+            
+            // Update issues chart - FIXED
+            const categories = ['overcharging', 'service', 'food-quality', 'bill', 'other'];
+            const counts = categories.map(cat => todayFeedbacks.filter(f => f.issueType === cat).length);
+            
+            if (issuesChart) {
+                issuesChart.data.datasets[0].data = counts;
+                issuesChart.update();
+            }
+
+            // Update hourly chart - FIXED
+            const hours = Array(10).fill(0);
+            todayFeedbacks.forEach(f => {
+                if (f.timestamp) {
+                    const hour = f.timestamp.toDate().getHours();
+                    if (hour >= 6 && hour <= 23) {
+                        const slot = Math.floor((hour - 6) / 2);
+                        if (slot >= 0 && slot < 10) hours[slot]++;
+                    }
+                }
+            });
+            
+            if (hourlyChart) {
+                hourlyChart.data.datasets[0].data = hours;
+                hourlyChart.update();
+            }
+        }
+
+        function filterAlerts(type) {
+            const container = document.getElementById('alertsContainer');
+            const cards = container.querySelectorAll('.alert-card');
+            
+            cards.forEach(card => {
+                const isUrgent = card.classList.contains('border-red-500');
+                const isPositive = card.classList.contains('border-green-500');
+                
+                if (type === 'all') card.style.display = 'block';
+                else if (type === 'urgent' && isUrgent) card.style.display = 'block';
+                else if (type === 'positive' && isPositive) card.style.display = 'block';
+                else card.style.display = 'none';
+            });
+        }
+
+        function openResponseModal(docId) {
+            currentDocId = docId;
+            const fb = allFeedbacks.find(f => f.id === docId);
+            document.getElementById('modalIssueText').textContent = fb.description;
+            document.getElementById('modalContactInfo').textContent = fb.customerPhone ? `Contact: ${fb.customerPhone}` : 'No contact provided';
+            document.getElementById('responseModal').classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('responseModal').classList.add('hidden');
+            currentDocId = null;
+        }
+
+        function sendResponse() {
+            if (!currentDocId) return;
+            
+            const response = document.getElementById('responseText').value;
+            
+            db.collection('feedbacks').doc(currentDocId).update({
+                status: 'resolved',
+                managerResponse: response,
+                resolvedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }).then(() => {
+                closeModal();
+                document.getElementById('responseText').value = '';
+            });
+        }
+
+        function quickResolve(docId) {
+            if (confirm('Mark this issue as resolved?')) {
+                db.collection('feedbacks').doc(docId).update({
+                    status: 'resolved',
+                    resolvedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        }
+
+        function refreshData() {
+            const icon = document.getElementById('refreshIcon');
+            icon.classList.add('fa-spin');
+            setTimeout(() => icon.classList.remove('fa-spin'), 1000);
+        }
+
+        // FIXED CSV Export with Reference ID and Manager Response
+        function exportData() {
+            const headers = ['Date', 'Time', 'Reference ID', 'Train', 'Coach', 'Seat', 'Rating', 'Issue Type', 'Description', 'Customer Phone', 'Status', 'Manager Response', 'Resolved At'];
+            
+            const rows = allFeedbacks.map(f => {
+                const date = f.timestamp ? f.timestamp.toDate() : new Date();
+                const dateStr = date.toLocaleDateString('en-IN');
+                const timeStr = date.toLocaleTimeString('en-IN');
+                const resolvedAt = f.resolvedAt ? f.resolvedAt.toDate().toLocaleString('en-IN') : '';
+                const refId = '#' + f.id.slice(-8).toUpperCase();
+                
+                return [
+                    dateStr,
+                    timeStr,
+                    refId,
+                    f.trainNumber || 'N/A',
+                    f.coach || 'N/A',
+                    f.seat || 'N/A',
+                    f.rating,
+                    f.issueType,
+                    `"${(f.description || '').replace(/"/g, '""')}"`,
+                    f.customerPhone || 'N/A',
+                    f.status,
+                    `"${(f.managerResponse || 'No response').replace(/"/g, '""')}"`,
+                    resolvedAt
+                ].join(',');
+            });
+
+            const csv = [headers.join(','), ...rows].join('\n');
+            
+            const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `RK-Feedback-Export-${new Date().toISOString().split('T')[0]}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }
+
+        function playNotificationSound() {
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                oscillator.frequency.value = 800;
+                oscillator.type = 'sine';
+                
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+                
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.5);
+            } catch(e) { console.log('Audio not supported'); }
+        }
+
+        function checkConnection() {
+            const status = document.getElementById('connectionStatus');
+            if (navigator.onLine) {
+                status.innerHTML = '<span class="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>Live Sync';
+                status.className = 'status-live text-sm font-medium text-green-600 flex items-center';
+            } else {
+                status.innerHTML = '<span class="w-2 h-2 bg-red-500 rounded-full mr-2"></span>Offline';
+                status.className = 'text-sm font-medium text-red-600 flex items-center';
+            }
+        }
+        
+        window.addEventListener('online', checkConnection);
+        window.addEventListener('offline', checkConnection);
+    </script>
+</body>
+</html>

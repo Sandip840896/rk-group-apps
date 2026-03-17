@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RK Group - Unified Manager Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        * { font-family: 'Inter', sans-serif; }
+        
+        .status-live::before { content: ''; display: inline-block; width: 8px; height: 8px; background: #10b981; border-radius: 50%; margin-right: 6px; animation: livePulse 2s infinite; }
+        @keyframes livePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        
+        .alert-card { animation: slideIn 0.3s ease-out; }
+        @keyframes slideIn { from { transform: translateX(-20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        
+        .chart-container { position: relative; height: 250px; width: 100%; }
+        
+        .staff-card:hover { transform: translateY(-2px); box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1); }
+        
+        .tab-active { border-bottom: 3px solid #3b82f6; color: #3b82f6; }
+        
+        .metric-card { transition: all 0.3s ease; }
+        .metric-card:hover { transform: translateY(-4px); box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); }
+    </style>
+</head>
+<body class="bg-slate-100">
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyDMcHok-Q-w6a0BwG2w1sFvSxQwgTXlnUg",
+            authDomain: "rk-group-feedback.firebaseapp.com",
+            projectId: "rk-group-feedback",
+            storageBucket: "rk-group-feedback.firebasestorage.app",
+            messagingSenderId: "89598658685",
+            appId: "1:89598658685:web:398d8a06db8bea367ec914"
+        };
+        
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+    </script>
+
+    <!-- Navigation -->
+    <nav class="bg-white shadow-lg sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <div class="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-lg flex items-center justify-center text-white font-bold mr-3">RK</div>
+                    <div>
+                        <h1 class="font-bold text-slate-800 text-lg">Unified Command Center</h1>
+                        <p class="text-xs text-slate-500">Feedback + Sales Analytics</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span class="status-live text-sm font-medium text-green-600 flex items-center" id="connectionStatus">
+                        Live Sync
+                    </span>
+                    <div class="relative">
+                        <i class="fas fa-bell text-slate-600 text-xl cursor-pointer hover:text-blue-600 transition"></i>
+                        <span id="notificationBadge" class="absolute -top-2 -right-2 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center hidden">0</span>
+                    </div>
+                    <button onclick="refreshAll()" class="p-2 text-slate-600 hover:text-blue-600 transition" title="Refresh">
+                        <i class="fas fa-sync-alt" id="refreshIcon"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
+        <!-- Date Filter -->
+        <div class="bg-white rounded-xl shadow-md p-4 mb-6 flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center space-x-4">
+                <label class="text-sm font-medium text-slate-700">Date Range:</label>
+                <select id="dateFilter" onchange="loadAllData()" class="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                    <option value="today">Today</option>
+                    <option value="week">Last 7 Days</option>
+                    <option value="month">This Month</option>
+                    <option value="all">All Time</option>
+                </select>
+            </div>
+            <div class="flex items-center space-x-2">
+                <button onclick="exportFeedback()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition flex items-center space-x-2">
+                    <i class="fas fa-download"></i>
+                    <span>Export Feedback</span>
+                </button>
+                <button onclick="exportSales()" class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700 transition flex items-center space-x-2">
+                    <i class="fas fa-download"></i>
+                    <span>Export Sales</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Key Metrics Row -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <!-- Total Sales -->
+            <div class="metric-card bg-white rounded-xl shadow-md p-6 border-l-4 border-green-500">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-slate-500 mb-1">Total Sales</p>
+                        <p class="text-3xl font-bold text-slate-800" id="totalSales">₹0</p>
+                        <p class="text-xs text-green-600 mt-1" id="salesTrend">↑ 12% vs yesterday</p>
+                    </div>
+                    <div class="w-14 h-14 bg-green-100 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-rupee-sign text-green-600 text-2xl"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Total Transactions -->
+            <div class="metric-card bg-white rounded-xl shadow-md p-6 border-l-4 border-blue-500">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-slate-500 mb-1">Transactions</p>
+                        <p class="text-3xl font-bold text-slate-800" id="totalTransactions">0</p>
+                        <p class="text-xs text-blue-600 mt-1">Across all trains</p>
+                    </div>
+                    <div class="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-receipt text-blue-600 text-2xl"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Customer Feedback -->
+            <div class="metric-card bg-white rounded-xl shadow-md p-6 border-l-4 border-purple-500">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-slate-500 mb-1">Feedback Received</p>
+                        <p class="text-3xl font-bold text-slate-800" id="totalFeedback">0</p>
+                        <p class="text-xs text-purple-600 mt-1" id="avgRating">Avg: 0.0 ★</p>
+                    </div>
+                    <div class="w-14 h-14 bg-purple-100 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-comments text-purple-600 text-2xl"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pending Issues -->
+            <div class="metric-card bg-white rounded-xl shadow-md p-6 border-l-4 border-red-500">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-slate-500 mb-1">Pending Issues</p>
+                        <p class="text-3xl font-bold text-slate-800" id="pendingIssues">0</p>
+                        <p class="text-xs text-red-600 mt-1">Need attention</p>
+                    </div>
+                    <div class="w-14 h-14 bg-red-100 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-exclamation-triangle text-red-600 text-2xl"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- Sales Trend Chart -->
+            <div class="bg-white rounded-xl shadow-md p-6">
+                <h3 class="text-lg font-bold text-slate-800 mb-4 flex items-center">
+                    <i class="fas fa-chart-line text-green-500 mr-2"></i>
+                    Sales Trend
+                </h3>
+                <div class="chart-container">
+                    <canvas id="salesChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Feedback Categories Chart -->
+            <div class="bg-white rounded-xl shadow-md p-6">
+                <h3 class="text-lg font-bold text-slate-800 mb-4 flex items-center">
+                    <i class="fas fa-chart-pie text-purple-500 mr-2"></i>
+                    Feedback Categories
+                </h3>
+                <div class="chart-container">
+                    <canvas id="feedbackChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Staff Performance Section -->
+        <div class="bg-white rounded-xl shadow-md p-6 mb-8">
+            <h3 class="text-lg font-bold text-slate-800 mb-4 flex items-center">
+                <i class="fas fa-users text-blue-500 mr-2"></i>
+                Staff Performance Leaderboard
+            </h3>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-slate-50 text-slate-600">
+                        <tr>
+                            <th class="px-4 py-3 text-left font-medium">Rank</th>
+                            <th class="px-4 py-3 text-left font-medium">Staff ID</th>
+                            <th class="px-4 py-3 text-left font-medium">Train</th>
+                            <th class="px-4 py-3 text-right font-medium">Sales (₹)</th>
+                            <th class="px-4 py-3 text-right font-medium">Transactions</th>
+                            <th class="px-4 py-3 text-right font-medium">Avg Sale</th>
+                            <th class="px-4 py-3 text-center font-medium">Performance</th>
+                        </tr>
+                    </thead>
+                    <tbody id="staffTableBody" class="divide-y divide-slate-200">
+                        <tr>
+                            <td colspan="7" class="px-4 py-8 text-center text-slate-400">
+                                <i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
+                                <p>Loading staff data...</p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Tabs Section -->
+        <div class="bg-white rounded-xl shadow-md overflow-hidden">
+            <!-- Tab Headers -->
+            <div class="flex border-b border-slate-200">
+                <button onclick="switchTab('feedback')" id="tab-feedback" class="flex-1 py-4 px-6 text-sm font-medium text-slate-600 hover:text-blue-600 transition tab-active">
+                    <i class="fas fa-comment-dots mr-2"></i>Customer Feedback
+                </button>
+                <button onclick="switchTab('sales')" id="tab-sales" class="flex-1 py-4 px-6 text-sm font-medium text-slate-600 hover:text-blue-600 transition">
+                    <i class="fas fa-shopping-cart mr-2"></i>Recent Sales
+                </button>
+                <button onclick="switchTab('alerts')" id="tab-alerts" class="flex-1 py-4 px-6 text-sm font-medium text-slate-600 hover:text-blue-600 transition">
+                    <i class="fas fa-bell mr-2"></i>Live Alerts
+                    <span id="alertBadge" class="ml-2 bg-red-500 text-white text-xs px-2 py-1 rounded-full hidden">0</span>
+                </button>
+            </div>
+
+            <!-- Tab Content -->
+            <div class="p-6">
+                <!-- Feedback Tab -->
+                <div id="content-feedback" class="tab-content">
+                    <div class="flex justify-between items-center mb-4">
+                        <h4 class="font-bold text-slate-800">Recent Customer Feedback</h4>
+                        <select id="feedbackFilter" onchange="loadFeedback()" class="border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                            <option value="all">All Feedback</option>
+                            <option value="complaint">Complaints Only</option>
+                            <option value="positive">Positive Only</option>
+                        </select>
+                    </div>
+                    <div id="feedbackList" class="space-y-4 max-h-96 overflow-y-auto">
+                        <p class="text-center text-slate-400 py-8">Loading feedback...</p>
+                    </div>
+                </div>
+
+                <!-- Sales Tab -->
+                <div id="content-sales" class="tab-content hidden">
+                    <div class="flex justify-between items-center mb-4">
+                        <h4 class="font-bold text-slate-800">Recent Transactions</h4>
+                        <select id="salesFilter" onchange="loadSales()" class="border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                            <option value="all">All Trains</option>
+                            <option value="12649">12649 - YPR Express</option>
+                            <option value="12628">12628 - Karnataka Exp</option>
+                        </select>
+                    </div>
+                    <div id="salesList" class="space-y-3 max-h-96 overflow-y-auto">
+                        <p class="text-center text-slate-400 py-8">Loading sales...</p>
+                    </div>
+                </div>
+
+                <!-- Alerts Tab -->
+                <div id="content-alerts" class="tab-content hidden">
+                    <div id="alertsList" class="space-y-4 max-h-96 overflow-y-auto">
+                        <p class="text-center text-slate-400 py-8">No active alerts</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Response Modal -->
+    <div id="responseModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6">
+            <h3 class="text-lg font-bold text-slate-800 mb-4">Respond to Customer</h3>
+            <div class="mb-4 p-3 bg-slate-50 rounded-lg">
+                <p class="text-sm text-slate-600 mb-1">Issue:</p>
+                <p class="text-sm font-medium text-slate-800" id="modalIssueText">Loading...</p>
+            </div>
+            <textarea id="responseText" rows="4" class="w-full border border-slate-300 rounded-lg px-4 py-3 mb-4 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Type your response..."></textarea>
+            <div class="flex space-x-3">
+                <button onclick="closeModal()" class="flex-1 py-3 border border-slate-300 rounded-lg text-slate-700 font-medium hover:bg-slate-50 transition">Cancel</button>
+                <button onclick="sendResponse()" class="flex-1 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition">Mark Resolved</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentDocId = null;
+        let salesChart = null;
+        let feedbackChart = null;
+        let allFeedbacks = [];
+        let allSales = [];
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAllData();
+            startRealtimeListeners();
+        });
+
+        function loadAllData() {
+            loadMetrics();
+            loadStaffPerformance();
+            loadFeedback();
+            loadSales();
+            loadAlerts();
+        }
+
+        function startRealtimeListeners() {
+            // Listen for new feedback
+            db.collection('feedbacks').orderBy('timestamp', 'desc').limit(50)
+                .onSnapshot((snapshot) => {
+                    allFeedbacks = [];
+                    snapshot.forEach((doc) => {
+                        allFeedbacks.push({ id: doc.id, ...doc.data() });
+                    });
+                    loadFeedback();
+                    loadMetrics();
+                    loadAlerts();
+                    
+                    snapshot.docChanges().forEach((change) => {
+                        if (change.type === 'added') {
+                            playNotificationSound();
+                        }
+                    });
+                });
+
+            // Listen for new sales
+            db.collection('sales').orderBy('timestamp', 'desc').limit(50)
+                .onSnapshot((snapshot) => {
+                    allSales = [];
+                    snapshot.forEach((doc) => {
+                        allSales.push({ id: doc.id, ...doc.data() });
+                    });
+                    loadSales();
+                    loadMetrics();
+                    loadStaffPerformance();
+                    updateCharts();
+                });
+        }
+
+        function loadMetrics() {
+            const dateRange = document.getElementById('dateFilter').value;
+            let startDate = new Date();
+            
+            switch(dateRange) {
+                case 'today':
+                    startDate.setHours(0, 0, 0, 0);
+                    break;
+                case 'week':
+                    startDate.setDate(startDate.getDate() - 7);
+                    break;
+                case 'month':
+                    startDate.setDate(1);
+                    break;
+                case 'all':
+                    startDate = new Date(0);
+                    break;
+            }
+
+            // Calculate Sales Metrics
+            const filteredSales = allSales.filter(sale => {
+                if (!sale.timestamp) return false;
+                return sale.timestamp.toDate() >= startDate;
+            });
+
+            const totalSales = filteredSales.reduce((sum, s) => sum + (s.total || 0), 0);
+            document.getElementById('totalSales').textContent = '₹' + totalSales.toLocaleString('en-IN');
+            document.getElementById('totalTransactions').textContent = filteredSales.length;
+
+            // Calculate Feedback Metrics
+            const filteredFeedback = allFeedbacks.filter(fb => {
+                if (!fb.timestamp) return false;
+                return fb.timestamp.toDate() >= startDate;
+            });
+
+            document.getElementById('totalFeedback').textContent = filteredFeedback.length;
+            
+            const avgRating = filteredFeedback.length > 0 
+                ? (filteredFeedback.reduce((sum, f) => sum + (f.rating || 0), 0) / filteredFeedback.length).toFixed(1)
+                : '0.0';
+            document.getElementById('avgRating').textContent = 'Avg: ' + avgRating + ' ★';
+
+            const pending = filteredFeedback.filter(f => f.status === 'new').length;
+            document.getElementById('pendingIssues').textContent = pending;
+
+            // Update badge
+            const badge = document.getElementById('notificationBadge');
+            if (pending > 0) {
+                badge.textContent = pending;
+                badge.classList.remove('hidden');
+            } else {
+                badge.classList.add('hidden');
+            }
+        }
+
+        function loadStaffPerformance() {
+            const dateRange = document.getElementById('dateFilter').value;
+            let startDate = new Date();
+            startDate.setHours(0, 0, 0, 0);
+
+            // Group sales by staff
+            const staffStats = {};
+            
+            allSales.forEach(sale => {
+                if (!sale.timestamp || sale.timestamp.toDate() < startDate) return;
+                
+                const key = sale.staffId + '-' + sale.trainNumber;
+                if (!staffStats[key]) {
+                    staffStats[key] = {
+                        staffId: sale.staffId,
+                        trainNumber: sale.trainNumber,
+                        totalSales: 0,
+                        transactions: 0
+                    };
+                }
+                staffStats[key].totalSales += sale.total || 0;
+                staffStats[key].transactions += 1;
+            });
+
+            // Convert to array and sort
+            const sortedStaff = Object.values(staffStats).sort((a, b) => b.totalSales - a.totalSales);
+
+            const tbody = document.getElementById('staffTableBody');
+            
+            if (sortedStaff.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="px-4 py-8 text-center text-slate-400">No sales data available</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = sortedStaff.map((staff, index) => {
+                const avgSale = staff.transactions > 0 ? Math.round(staff.totalSales / staff.transactions) : 0;
+                const rank = index + 1;
+                let rankBadge = '';
+                
+                if (rank === 1) rankBadge = '<span class="text-yellow-500 text-xl">🥇</span>';
+                else if (rank === 2) rankBadge = '<span class="text-slate-400 text-xl">🥈</span>';
+                else if (rank === 3) rankBadge = '<span class="text-amber-600 text-xl">🥉</span>';
+                else rankBadge = `<span class="text-slate-400 font-bold">#${rank}</span>`;
+
+                // Performance indicator
+                let performance = '';
+                if (staff.totalSales > 5000) performance = '<span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold">Excellent</span>';
+                else if (staff.totalSales > 2000) performance = '<span class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">Good</span>';
+                else performance = '<span class="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-xs font-bold">Average</span>';
+
+                return `
+                    <tr class="hover:bg-slate-50 transition">
+                        <td class="px-4 py-4">${rankBadge}</td>
+                        <td class="px-4 py-4 font-medium text-slate-800">${staff.staffId}</td>
+                        <td class="px-4 py-4 text-slate-600">${staff.trainNumber}</td>
+                        <td class="px-4 py-4 text-right font-bold text-green-600">₹${staff.totalSales.toLocaleString('en-IN')}</td>
+                        <td class="px-4 py-4 text-right text-slate-600">${staff.transactions}</td>
+                        <td class="px-4 py-4 text-right text-slate-600">₹${avgSale}</td>
+                        <td class="px-4 py-4 text-center">${performance}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function loadFeedback() {
+            const filter = document.getElementById('feedbackFilter').value;
+            const container = document.getElementById('feedbackList');
+            
+            let filtered = allFeedbacks;
+            
+            if (filter === 'complaint') {
+                filtered = filtered.filter(f => f.rating <= 2 || f.issueType === 'overcharging');
+            } else if (filter === 'positive') {
+                filtered = filtered.filter(f => f.rating >= 4);
+            }
+
+            if (filtered.length === 0) {
+                container.innerHTML = '<p class="text-center text-slate-400 py-8">No feedback found</p>';
+                return;
+            }
+
+            container.innerHTML = filtered.map(fb => createFeedbackCard(fb)).join('');
+        }
+
+        function createFeedbackCard(fb) {
+            const isUrgent = fb.rating <= 2 || fb.issueType === 'overcharging';
+            const isPositive = fb.rating >= 4;
+            const borderColor = isUrgent ? 'border-red-500' : isPositive ? 'border-green-500' : 'border-yellow-500';
+            const bgColor = isUrgent ? 'bg-red-50' : isPositive ? 'bg-green-50' : 'bg-yellow-50';
+            
+            const issueLabels = {
+                'overcharging': 'Overcharging', 'service': 'Service Issue',
+                'food-quality': 'Food Quality', 'availability': 'Not Available',
+                'bill': 'No Bill', 'staff-behavior': 'Staff Behavior',
+                'appreciation': 'Appreciation', 'other': 'Other'
+            };
+
+            const time = fb.timestamp ? fb.timestamp.toDate().toLocaleString('en-IN') : 'Just now';
+            
+            return `
+                <div class="alert-card p-4 border-l-4 ${borderColor} ${bgColor} rounded-lg">
+                    <div class="flex justify-between items-start mb-2">
+                        <div class="flex items-center space-x-2">
+                            <span class="text-yellow-400 text-sm">${'★'.repeat(fb.rating)}${'☆'.repeat(5-fb.rating)}</span>
+                            <span class="text-xs text-slate-500">${time}</span>
+                        </div>
+                        ${fb.status === 'new' ? '<span class="bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-bold">NEW</span>' : '<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">RESOLVED</span>'}
+                    </div>
+                    <p class="font-bold text-slate-800 mb-1">${issueLabels[fb.issueType] || fb.issueType}</p>
+                    <p class="text-sm text-slate-600 mb-2">${fb.description}</p>
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-slate-500">Train ${fb.trainNumber} • Coach ${fb.coach} • Seat ${fb.seat}</span>
+                        ${fb.status === 'new' ? `
+                            <button onclick="openResponseModal('${fb.id}')" class="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">Respond</button>
+                        ` : ''}
+                    </div>
+                    ${fb.managerResponse ? `<div class="mt-2 p-2 bg-white rounded text-xs text-slate-600"><strong>Response:</strong> ${fb.managerResponse}</div>` : ''}
+                </div>
+            `;
+        }
+
+        function loadSales() {
+            const filter = document.getElementById('salesFilter').value;
+            const container = document.getElementById('salesList');
+            
+            let filtered = allSales;
+            if (filter !== 'all') {
+                filtered = filtered.filter(s => s.trainNumber === filter);
+            }
+
+            if (filtered.length === 0) {
+                container.innerHTML = '<p class="text-center text-slate-400 py-8">No sales found</p>';
+                return;
+            }
+
+            container.innerHTML = filtered.slice(0, 20).map(sale => {
+                const time = sale.timestamp ? sale.timestamp.toDate().toLocaleString('en-IN') : 'Just now';
+                const items = sale.items.map(i => `${i.name} x${i.qty}`).join(', ');
+                
+                return `
+                    <div class="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
+                        <div class="flex-1">
+                            <div class="flex items-center space-x-2 mb-1">
+                                <span class="font-bold text-slate-800">${sale.transactionId}</span>
+                                <span class="text-xs text-slate-500">${time}</span>
+                            </div>
+                            <p class="text-sm text-slate-600">${items}</p>
+                            <p class="text-xs text-slate-500 mt-1">Staff: ${sale.staffId} • Train: ${sale.trainNumber}</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-xl font-bold text-green-600">₹${sale.total}</p>
+                            <p class="text-xs text-slate-500">${sale.customerPhone}</p>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function loadAlerts() {
+            const pending = allFeedbacks.filter(f => f.status === 'new');
+            const container = document.getElementById('alertsList');
+            const badge = document.getElementById('alertBadge');
+            
+            if (pending.length === 0) {
+                container.innerHTML = '<p class="text-center text-slate-400 py-8">No active alerts</p>';
+                badge.classList.add('hidden');
+                return;
+            }
+            
+            badge.textContent = pending.length;
+            badge.classList.remove('hidden');
+            
+            container.innerHTML = pending.map(fb => createFeedbackCard(fb)).join('');
+        }
+
+        function updateCharts() {
+            // Sales Chart
+            const salesCtx = document.getElementById('salesChart');
+            if (salesCtx) {
+                const dailySales = {};
+                allSales.forEach(sale => {
+                    if (!sale.timestamp) return;
+                    const date = sale.timestamp.toDate().toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+                    dailySales[date] = (dailySales[date] || 0) + (sale.total || 0);
+                });
+                
+                const labels = Object.keys(dailySales).slice(-7);
+                const data = labels.map(d => dailySales[d]);
+                
+                if (salesChart) salesChart.destroy();
+                
+                salesChart = new Chart(salesCtx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Sales (₹)',
+                            data: data,
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            y: { beginAtZero: true, grid: { color: '#f1f5f9' } },
+                            x: { grid: { display: false } }
+                        }
+                    }
+                });
+            }
+
+            // Feedback Chart
+            const feedbackCtx = document.getElementById('feedbackChart');
+            if (feedbackCtx) {
+                const categories = {};
+                allFeedbacks.forEach(fb => {
+                    const type = fb.issueType || 'other';
+                    categories[type] = (categories[type] || 0) + 1;
+                });
+                
+                if (feedbackChart) feedbackChart.destroy();
+                
+                feedbackChart = new Chart(feedbackCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: Object.keys(categories).map(k => k.replace('-', ' ').toUpperCase()),
+                        datasets: [{
+                            data: Object.values(categories),
+                            backgroundColor: ['#ef4444', '#f97316', '#eab308', '#8b5cf6', '#3b82f6', '#10b981', '#6b7280'],
+                            borderWidth: 2,
+                            borderColor: '#ffffff'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'right', labels: { boxWidth: 12, font: { size: 10 } } }
+                        }
+                    }
+                });
+            }
+        }
+
+        function switchTab(tabName) {
+            // Hide all content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.add('hidden');
+            });
+            
+            // Remove active class from all tabs
+            document.querySelectorAll('[id^="tab-"]').forEach(btn => {
+                btn.classList.remove('tab-active');
+            });
+            
+            // Show selected content
+            document.getElementById('content-' + tabName).classList.remove('hidden');
+            
+            // Activate selected tab
+            document.getElementById('tab-' + tabName).classList.add('tab-active');
+        }
+
+        function openResponseModal(docId) {
+            currentDocId = docId;
+            const fb = allFeedbacks.find(f => f.id === docId);
+            document.getElementById('modalIssueText').textContent = fb.description;
+            document.getElementById('responseModal').classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('responseModal').classList.add('hidden');
+            currentDocId = null;
+        }
+
+        function sendResponse() {
+            if (!currentDocId) return;
+            
+            const response = document.getElementById('responseText').value;
+            
+            db.collection('feedbacks').doc(currentDocId).update({
+                status: 'resolved',
+                managerResponse: response,
+                resolvedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }).then(() => {
+                closeModal();
+                document.getElementById('responseText').value = '';
+            });
+        }
+
+        function refreshAll() {
+            const icon = document.getElementById('refreshIcon');
+            icon.classList.add('fa-spin');
+            loadAllData();
+            setTimeout(() => icon.classList.remove('fa-spin'), 1000);
+        }
+
+        function exportFeedback() {
+            const headers = ['Date', 'Train', 'Coach', 'Seat', 'Rating', 'Issue Type', 'Description', 'Status'];
+            const rows = allFeedbacks.map(fb => [
+                fb.timestamp ? fb.timestamp.toDate().toLocaleString('en-IN') : '',
+                fb.trainNumber || '',
+                fb.coach || '',
+                fb.seat || '',
+                fb.rating || '',
+                fb.issueType || '',
+                `"${(fb.description || '').replace(/"/g, '""')}"`,
+                fb.status || ''
+            ].join(','));
+            
+            downloadCSV('RK-Feedback-Export.csv', [headers.join(','), ...rows].join('\n'));
+        }
+
+        function exportSales() {
+            const headers = ['Date', 'Transaction ID', 'Staff', 'Train', 'Total', 'Items', 'Customer Phone'];
+            const rows = allSales.map(sale => [
+                sale.timestamp ? sale.timestamp.toDate().toLocaleString('en-IN') : '',
+                sale.transactionId || '',
+                sale.staffId || '',
+                sale.trainNumber || '',
+                sale.total || '',
+                `"${(sale.items || []).map(i => `${i.name}x${i.qty}`).join(', ')}"`,
+                sale.customerPhone || ''
+            ].join(','));
+            
+            downloadCSV('RK-Sales-Export.csv', [headers.join(','), ...rows].join('\n'));
+        }
+
+        function downloadCSV(filename, csvContent) {
+            const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }
+
+        function playNotificationSound() {
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                oscillator.frequency.value = 800;
+                oscillator.type = 'sine';
+                
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+                
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.5);
+            } catch(e) { console.log('Audio not supported'); }
+        }
+    </script>
+</body>
+</html>
